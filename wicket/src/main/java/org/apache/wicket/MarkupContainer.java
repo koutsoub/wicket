@@ -22,6 +22,7 @@ import java.util.Collections;
 import java.util.Comparator;
 import java.util.Iterator;
 import java.util.List;
+import java.util.Stack;
 
 import org.apache.wicket.markup.ComponentTag;
 import org.apache.wicket.markup.MarkupElement;
@@ -87,6 +88,11 @@ public abstract class MarkupContainer extends Component
 
 	/** Log for reporting. */
 	private static final Logger log = LoggerFactory.getLogger(MarkupContainer.class);
+	// contains queued components
+	private static MetaDataKey<ArrayList<Component>> QUEUE = new MetaDataKey<ArrayList<Component>>()
+	{
+
+	};
 
 	/** List of children or single child */
 	private Object children;
@@ -111,6 +117,258 @@ public abstract class MarkupContainer extends Component
 	public MarkupContainer(final String id, IModel<?> model)
 	{
 		super(id, model);
+	}
+
+	public MarkupContainer queue(final Component... childs)
+	{
+
+		ArrayList<Component> queue = getMetaData(QUEUE);
+		if (queue == null)
+		{
+			queue = new ArrayList<Component>();
+			setMetaData(QUEUE, queue);
+		}
+
+		// if (Application.DEVELOPMENT.equals(getApplication().getConfigurationType()))
+		// {
+		for (Component child : childs)
+		{
+			log.debug("Queuing " + child.getId() + " on :" + getId());
+			for (Component queued : queue)
+			{
+
+				if (queued.getId().equals(child.getId()))
+				{
+					throw new WicketRuntimeException(
+						"Component with id: '" +
+							queued.getId() +
+							"' is already queued in container: " +
+							this +
+							". Two components with the same id cannot be queued under the same container. Component alread queued: " +
+							queued + ". Component attempted to be queued: " + child);
+				}
+
+			}
+			queue.add(child);
+		}
+		// if component is initialized and queue contains children immediatelly process queue;
+		/*
+		 * if (getFlag(FLAG_INITIALIZED)) { unqueueChildren(); }
+		 */
+		return this;
+	}
+
+
+	@Override
+	public void unqueueChildren(boolean throwExc)
+	{
+		reorderQueueBasedOnMarkup();
+		ArrayList<Component> queue = getMetaData(QUEUE);
+		if (queue == null)
+		{
+			log.debug("[UNQUEUE]Unqueuing Chlidren of Component:" + getId() + " NO QUEUE");
+			return;
+		}
+		while (!queue.isEmpty())
+		{
+			Component resolved = unqueueChild(queue);
+			if (resolved == null)
+			{
+				if (!throwExc)
+					return;
+				String error = "The following component ids cannot be unqueued for component " +
+					getId() + " :";
+				for (Component c : queue)
+				{
+					error = error + " [" + c.getId() + "] ";
+				}
+				throw new WicketRuntimeException(error);
+			}
+			else
+			{
+				initialize();
+				queue.remove(resolved);
+			}
+		}
+
+		setMetaData(QUEUE, null);
+	}
+
+	private void reorderQueueBasedOnMarkup()
+	{
+		MarkupStream markup = null;
+		ArrayList<Component> queueOrdered = new ArrayList<Component>();
+		ArrayList<Component> queue = getMetaData(QUEUE);
+		if (queue == null)
+			return;
+		try
+		{
+			markup = getAssociatedMarkupStream(false);
+		}
+		catch (MarkupException e)
+		{
+			// swallow
+
+		}
+		if (markup == null)
+		{
+			MarkupContainer markupParent = findParentWithAssociatedMarkup();
+			if (markupParent != null)
+				markup = markupParent.getAssociatedMarkupStream(false);
+		}
+		if (markup == null)
+			throw new MarkupNotFoundException(exceptionMessage("Markup of type '" +
+				getMarkupType() + "' for component '" + getClass().getName() + "' not found."));
+		while (markup.hasMore())
+		{
+			final MarkupElement e = markup.get();
+			markup.next();
+			if (e instanceof ComponentTag)
+			{
+				Iterator<Component> it = queue.iterator();
+				while (it.hasNext())
+				{
+					Component c = it.next();
+					if (c.getId().equals(((ComponentTag)e).getId()))
+					{
+						queueOrdered.add(c);
+						it.remove();
+					}
+
+				}
+			}
+
+		}
+		if (queue.size() > 0)
+		{
+			queueOrdered.addAll(queue);
+		}
+		for (Component c : queueOrdered)
+		{
+			c.onInitialize();
+		}
+		setMetaData(QUEUE, queueOrdered);
+
+	}
+
+	private Component unqueueChild(ArrayList<Component> queue)
+	{
+
+		for (Component child : queue)
+		{
+			MarkupStream markup = null;
+			try
+			{
+				markup = getAssociatedMarkupStream(false);
+			}
+			catch (MarkupException em)
+			{
+				// swallow
+			}
+			if (markup == null)
+			{
+				MarkupContainer markupParent = findParentWithAssociatedMarkup();
+				if (markupParent != null)
+					markup = markupParent.getAssociatedMarkupStream(false);
+			}
+			if (markup == null)
+				throw new MarkupNotFoundException(exceptionMessage("Markup of type '" +
+					getMarkupType() + "' for component '" + getClass().getName() + "' not found."));
+			System.out.println("Markup for " + getId() + ":" + markup);
+			Stack<ComponentTag> stack = new Stack<ComponentTag>();
+			boolean added = false;
+			while (markup.hasMore())
+			{
+				final MarkupElement e = markup.get();
+				markup.next();
+				if (e instanceof ComponentTag)
+				{
+					ComponentTag ct = (ComponentTag)e;
+					if (ct.isClose())
+					{
+						stack.pop();
+						continue;
+					}
+					stack.push(ct);
+					Component toCheck = processUnqueue(ct, stack, child);
+					if (toCheck != null)
+						return toCheck;
+
+					if (ct.isOpenClose())
+					{
+						stack.pop();
+					}
+				}
+			}
+		}
+		return null;
+	}
+
+
+	private Component processUnqueue(ComponentTag ct, Stack<ComponentTag> stack, Component child)
+	{
+		Iterator<ComponentTag> it = stack.iterator();
+
+		if (ct.getId().equals(child.getId()))
+		{
+			Component parent = this;
+			Component lastParent = this;
+			int si, ssize;
+			for (si = 0, ssize = stack.size(); si < ssize - 1; si++)
+			{
+				if (parent.getId().equals(stack.get(si).getId()))
+					continue;
+				// check if parent is already processed and skip in order to find direct hierarchy
+				if (isParentForId(stack.get(si).getId()))
+					continue;
+				// handle special _panel tag
+				if (stack.get(si).getId().startsWith("_panel"))
+					continue;
+				Component toCheck = parent.get(stack.get(si).getId());
+				if (toCheck == null)
+					toCheck = getFromQueue(stack.get(si).getId());
+				parent = toCheck;
+				if (parent == null)
+					break;// parent = this;
+
+			}
+			if (parent != null)
+			{
+				System.out.println("[ADDING]" + child.getId() + " to " +
+					((MarkupContainer)parent).getId());
+				((MarkupContainer)parent).add(child);
+				return child;
+			}
+
+		}
+		return null;
+	}
+
+	private Component getFromQueue(String id)
+	{
+		Component child = null;
+		if (getMetaData(QUEUE) != null)
+			for (Component c : getMetaData(QUEUE))
+				if (c.getId().equals(id))
+				{
+					child = c;
+					break;
+				}
+		if (child == null && getParent() != null)
+			child = getParent().getFromQueue(id);
+		return child;
+	}
+
+	private boolean isParentForId(String id)
+	{
+		Component parentc = getParent();
+		while (parentc != null)
+		{
+			if (parentc.getId().equals(id))
+				return true;
+			parentc = parentc.getParent();
+		}
+		return false;
 	}
 
 	/**
@@ -348,9 +606,8 @@ public abstract class MarkupContainer extends Component
 	{
 		try
 		{
-			return getApplication().getMarkupSettings()
-				.getMarkupCache()
-				.getMarkupStream(this, false, throwException);
+			return getApplication().getMarkupSettings().getMarkupCache().getMarkupStream(this,
+				false, throwException);
 		}
 		catch (MarkupException ex)
 		{
@@ -965,8 +1222,8 @@ public abstract class MarkupContainer extends Component
 		final IDebugSettings debugSettings = Application.get().getDebugSettings();
 		if (debugSettings.isLinePreciseReportingOnAddComponentEnabled())
 		{
-			component.setMetaData(ADDED_AT_KEY,
-				Strings.toString(component, new MarkupException("added")));
+			component.setMetaData(ADDED_AT_KEY, Strings.toString(component, new MarkupException(
+				"added")));
 		}
 
 		if (page != null)
@@ -1732,6 +1989,10 @@ public abstract class MarkupContainer extends Component
 	void onBeforeRenderChildren()
 	{
 		super.onBeforeRenderChildren();
+		// process remaining queued components
+		ArrayList<Component> queue = getMetaData(QUEUE);
+		if (queue != null && queue.size() > 0)
+			unqueueChildren(true);
 
 		// We need to copy the children list because the children components can
 		// modify the hierarchy in their onBeforeRender.

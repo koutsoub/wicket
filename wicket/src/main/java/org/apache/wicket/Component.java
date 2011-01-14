@@ -924,8 +924,8 @@ public abstract class Component implements IClusterable, IConverterLocator
 		final IDebugSettings debugSettings = Application.get().getDebugSettings();
 		if (debugSettings.isLinePreciseReportingOnNewComponentEnabled())
 		{
-			setMetaData(CONSTRUCTED_AT_KEY,
-				Strings.toString(this, new MarkupException("constructed")));
+			setMetaData(CONSTRUCTED_AT_KEY, Strings.toString(this, new MarkupException(
+				"constructed")));
 		}
 
 		if (model != null)
@@ -3300,13 +3300,9 @@ public abstract class Component implements IClusterable, IConverterLocator
 				final Page page = findPage();
 				if (page == null)
 				{
-					return new StringBuffer("[Component id = ").append(getId())
-						.append(", page = <No Page>, path = ")
-						.append(getPath())
-						.append(".")
-						.append(Classes.simpleName(getClass()))
-						.append("]")
-						.toString();
+					return new StringBuffer("[Component id = ").append(getId()).append(
+						", page = <No Page>, path = ").append(getPath()).append(".").append(
+						Classes.simpleName(getClass())).append("]").toString();
 				}
 				else
 				{
@@ -4051,6 +4047,7 @@ public abstract class Component implements IClusterable, IConverterLocator
 		{
 			setFlag(FLAG_INITIALIZED, true);
 			setFlag(FLAG_INITIALIZE_SUPER_CALL_VERIFIED, false);
+			unqueueChildren(true);
 			onInitialize();
 			if (!getFlag(FLAG_INITIALIZE_SUPER_CALL_VERIFIED))
 			{
@@ -4063,6 +4060,11 @@ public abstract class Component implements IClusterable, IConverterLocator
 
 			getApplication().fireComponentInitializationListeners(this);
 		}
+	}
+
+	void unqueueChildren(boolean throwExc)
+	{
+
 	}
 
 	/**
