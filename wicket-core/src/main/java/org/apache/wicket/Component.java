@@ -670,8 +670,8 @@ public abstract class Component
 		final IDebugSettings debugSettings = Application.get().getDebugSettings();
 		if (debugSettings.isLinePreciseReportingOnNewComponentEnabled())
 		{
-			setMetaData(CONSTRUCTED_AT_KEY,
-				ComponentStrings.toString(this, new MarkupException("constructed")));
+			setMetaData(CONSTRUCTED_AT_KEY, ComponentStrings.toString(this, new MarkupException(
+				"constructed")));
 		}
 
 		if (model != null)
@@ -976,6 +976,7 @@ public abstract class Component
 		{
 			setFlag(FLAG_INITIALIZED, true);
 			setRequestFlag(RFLAG_INITIALIZE_SUPER_CALL_VERIFIED, false);
+			unqueueChildren(true);
 			onInitialize();
 			if (!getRequestFlag(RFLAG_INITIALIZE_SUPER_CALL_VERIFIED))
 			{
@@ -988,6 +989,12 @@ public abstract class Component
 
 			getApplication().getComponentInitializationListeners().onInitialize(this);
 		}
+	}
+
+	void unqueueChildren(boolean throwExc)
+	{
+
+
 	}
 
 	/**
@@ -3192,13 +3199,9 @@ public abstract class Component
 				final Page page = findPage();
 				if (page == null)
 				{
-					return new StringBuilder("[Component id = ").append(getId())
-						.append(", page = <No Page>, path = ")
-						.append(getPath())
-						.append(".")
-						.append(Classes.simpleName(getClass()))
-						.append("]")
-						.toString();
+					return new StringBuilder("[Component id = ").append(getId()).append(
+						", page = <No Page>, path = ").append(getPath()).append(".").append(
+						Classes.simpleName(getClass())).append("]").toString();
 				}
 				else
 				{
